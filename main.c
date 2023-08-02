@@ -46,16 +46,35 @@ const uint8_t invSbox[256] = {
   0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb, 0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61,
   0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d };
 
-uint32_t* KeyExpansion();
-void SubBytes();
-void ShiftRows();
-void MixColumns();
-void AddRoundKey();
+uint32_t* KeyExpansion(const uint8_t* key);
+uint8_t* encrypt(const char* plaintext, uint8_t* key);
+void subBytes(uint8_t state[4][4]);
+void shiftRows(uint8_t state[4][4]);
+void mixColumns(uint8_t state[4][4]);
+void addRoundKey(int round, uint8_t state[4][4], uint32_t* key);
 void pad(const char* s, size_t size);
-void initRcon();
-
+void printState(uint8_t state[4][4]);
 uint32_t RotWord(uint32_t words);
 uint32_t SubWord(uint32_t words);
+
+uint8_t x_time(uint8_t b, uint8_t n) {
+	int i;
+	uint8_t temp = 0, mask = 0x01;
+
+	for (i = 0; i < 8; i++) {
+		if (n & mask)
+			temp ^= b;
+
+		if (b & 0x80)
+			b = (b << 1) ^ 0x1B;
+		else
+			b <<= 1;
+
+		mask <<= 1;
+	}
+
+	return temp;
+}
 
 uint32_t RotWord(uint32_t words) {
     uint8_t tmp[4] = {(words >> 24) & 0xff, (words >> 16) & 0xff, (words >> 8) & 0xff, words & 0xff};
@@ -93,10 +112,121 @@ uint32_t* KeyExpansion(const uint8_t * key) {
     }
     for(int i = 0; i < 4*(ROUND + 1); i++) {
         if(i < 4) W[i] = K[i];
-        else if(i >= 4 && (i % 4 == 0)) W[i] = ((W[i - 4] ^ SubWord(RotWord(W[i - 1])) & 0xffffffff) & 0xffffffff) ^ rc[i/4 - 1];
-        else W[i] = W[i - 4] ^ W[i - 1];
+        else if(i >= 4 && (i % 4 == 0)) W[i] = (((W[i - 4] ^ SubWord(RotWord(W[i - 1])) & 0xffffffff) & 0xffffffff) ^ rc[i/4 - 1]) & 0xffffffff;
+        else W[i] = (W[i - 4] ^ W[i - 1]);
     }
     return W;
+}
+
+void addRoundKey(int round, uint8_t state[4][4], uint32_t* key) { 
+    for(int i = 0; i < 4 ; i++) {
+        uint32_t shift = 24;
+        uint32_t mask = 0xff000000;
+        for(int j = 0; j < 4; j++) {
+            state[i][j] = (((key[4*round + i] & mask) >> shift) ^ state[i][j]) & 0xff;
+            mask >>= 8;
+            shift -= 8;
+        }
+    }
+}
+
+void subBytes(uint8_t state[4][4]) {
+    for(int i = 0; i < 4; i++) 
+        for(int j = 0; j < 4; j++)
+            state[i][j] = sbox[state[i][j]];
+}
+void invSubBytes(uint8_t state[4][4]) {
+    for(int i = 0; i < 4; i++) 
+        for(int j = 0; j < 4; j++)
+            state[i][j] = invSbox[state[i][j]];
+}
+
+void invShiftRows(uint8_t state[4][4]) {
+    uint8_t t;
+    t = state[3][1];
+    state[3][1] = state[2][1];
+    state[2][1] = state[1][1];
+    state[1][1] = state[0][1];
+    state[0][1] = t;
+
+    t = state[0][2];
+    state[0][2] = state[2][2];
+    state[2][2] = t;
+
+    t = state[1][2];
+    state[1][2] = state[3][2];
+    state[3][2] = t;
+
+    t = state[0][3];
+    state[0][3] = state[1][3];
+    state[1][3] = state[2][3];
+    state[2][3] = state[3][3];
+    state[3][3] = t;
+}
+
+void invMixColumns(uint8_t state[4][4]) {
+    int i, j, k;
+	uint8_t a[4][4] = { 
+        {0x0e, 0x0b, 0x0d, 0x09},
+        {0x09, 0x0e, 0x0b, 0x0d},
+        {0x0d, 0x09, 0x0e, 0x0b},
+        {0x0b, 0x0d, 0x09, 0x0e}
+    };
+
+	for (i = 0; i < 4; i++) {
+		uint8_t temp[4] = { 0, };
+
+		for (j = 0; j < 4; j++)
+			for (k = 0; k < 4; k++)
+				temp[j] ^= x_time(state[i][k], a[j][k]);
+
+		state[i][0] = temp[0];
+		state[i][1] = temp[1];
+		state[i][2] = temp[2];
+		state[i][3] = temp[3];
+	}
+}
+void shiftRows(uint8_t state[4][4]) { 
+    uint8_t t = state[0][1];
+    state[0][1] = state[1][1];
+    state[1][1] = state[2][1];
+    state[2][1] = state[3][1];
+    state[3][1] = t;
+
+    t = state[0][2];
+    state[0][2] = state[2][2];
+    state[2][2] = t;
+
+    t = state[1][2];
+    state[1][2] = state[3][2];
+    state[3][2] = t;
+
+    t = state[0][3];
+    state[0][3] = state[3][3];
+    state[3][3] = state[2][3];
+    state[2][3] = state[1][3];
+    state[1][3] = t;
+}
+
+void mixColumns(uint8_t state[4][4]) {
+	int i, j, k;
+	uint8_t a[4][4] = { 0x2, 0x3 , 0x1, 0x1,
+		0x1, 0x2, 0x3, 0x1,
+		0x1, 0x1, 0x2, 0x3,
+		0x3, 0x1, 0x1, 0x2 };
+
+	for (i = 0; i < 4; i++) {
+		uint8_t temp[4] = { 0, };
+
+		for (j = 0; j < 4; j++)
+			for (k = 0; k < 4; k++)
+				temp[j] ^= x_time(state[i][k], a[j][k]);
+
+		state[i][0] = temp[0];
+		state[i][1] = temp[1];
+		state[i][2] = temp[2];
+		state[i][3] = temp[3];
+	}
 }
 
 /* PKCS#7 */
@@ -108,7 +238,85 @@ void pad(const char* s, size_t size) {
     free(tmp);
 }
 
-int main() {
-    uint8_t* key = "\x24\x75\xa2\xb3\x34\x75\x56\x88\x31\xe2\x12\x00\x13\xaa\x54\x87";
+uint8_t* encrypt(const char* plaintext, uint8_t* key) {
     uint32_t* roundKey = KeyExpansion(key);
+    uint8_t state[4][4] = {0, };
+    for(int i = 0; i < 4; i++) 
+        for(int j = 0; j < 4; j++) 
+            state[i][j] = plaintext[i*4 + j];
+    addRoundKey(0, state, roundKey);
+    for(int round = 1; round < ROUND; round++) {
+        subBytes(state);
+        shiftRows(state);
+        mixColumns(state);
+        addRoundKey(round, state, roundKey);
+    }
+    subBytes(state);
+    shiftRows(state);
+    addRoundKey(ROUND, state, roundKey);
+    static uint8_t ciphertext[16];
+    for(int i = 0; i < 4; i++)
+        for(int j = 0; j < 4; j++)
+            ciphertext[4*i + j] = state[i][j];
+    return ciphertext;
+}
+
+uint8_t* decrypt(const char* ciphertext, uint8_t* key) {
+    uint32_t* roundKey = KeyExpansion(key);
+    uint8_t state[4][4] = {0, };
+    for(int i = 0; i < 4; i++)
+        for(int j = 0; j < 4; j++)
+            state[i][j] =ciphertext[i*4 + j];
+    addRoundKey(ROUND, state, roundKey); 
+    for(int round = ROUND - 1; round > 0; round--) {
+        invShiftRows(state);
+        invSubBytes(state);
+        addRoundKey(round, state, roundKey);
+        invMixColumns(state);
+    }
+    invShiftRows(state);
+    invSubBytes(state);
+    addRoundKey(0, state, roundKey);
+    static uint8_t plaintext[16];
+    for(int i = 0; i < 4; i++)
+        for(int j = 0; j < 4; j++)
+            plaintext[4*i + j] = state[i][j];
+    return plaintext;
+}
+void printState(uint8_t state[4][4]) {
+    for(int i = 0; i < 4; i++) {
+        for(int j = 0; j < 4; j++) {
+            printf("%x ", state[i][j]);
+        }
+        printf("\n");
+    }
+    printf("\n");
+}
+
+void testShiftRows() {
+    uint8_t state[4][4] = {
+        {0x01, 0x02, 0x03, 0x04},
+        {0x05, 0x06, 0x07, 0x08},
+        {0x09, 0x0a, 0x0b, 0x0c},
+        {0x0d, 0xe, 0x0f, 0x10}
+    };
+    printState(state);
+    shiftRows(state);
+    printState(state);
+}
+
+int main() {
+    uint8_t* key = "BBBBBBBBBBBBBBBB";
+    uint8_t* plaintext = "AAAAAAAAAAAAAAAA";
+    uint8_t* ciphertext = "";
+    ciphertext = encrypt(plaintext, key);
+    printf("[*] ciphertext (hex) : ");
+    for(int i = 0; i < 16; i++)
+        printf("%x", ciphertext[i]);
+    printf("\n");
+    uint8_t* plaintext2 = "";
+    plaintext2 = decrypt(ciphertext, key);
+    printf("[*] plaintext (hex) : ");
+    for(int i = 0; i < 16; i++)
+        printf("%x", plaintext2[i]);
 }
