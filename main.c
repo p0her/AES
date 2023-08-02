@@ -52,10 +52,13 @@ void subBytes(uint8_t state[4][4]);
 void shiftRows(uint8_t state[4][4]);
 void mixColumns(uint8_t state[4][4]);
 void addRoundKey(int round, uint8_t state[4][4], uint32_t* key);
+void invSubBytes(uint8_t state[4][4]);
+void invMixColumn(uint8_t state[4][4]);
+void invShiftRows(uint8_t state[4][4]);
 void pad(const char* s, size_t size);
-void printState(uint8_t state[4][4]);
 uint32_t RotWord(uint32_t words);
 uint32_t SubWord(uint32_t words);
+uint8_t x_time(uint8_t b, uint8_t n);
 
 uint8_t x_time(uint8_t b, uint8_t n) {
 	int i;
@@ -282,27 +285,6 @@ uint8_t* decrypt(const char* ciphertext, uint8_t* key) {
         for(int j = 0; j < 4; j++)
             plaintext[4*i + j] = state[i][j];
     return plaintext;
-}
-void printState(uint8_t state[4][4]) {
-    for(int i = 0; i < 4; i++) {
-        for(int j = 0; j < 4; j++) {
-            printf("%x ", state[i][j]);
-        }
-        printf("\n");
-    }
-    printf("\n");
-}
-
-void testShiftRows() {
-    uint8_t state[4][4] = {
-        {0x01, 0x02, 0x03, 0x04},
-        {0x05, 0x06, 0x07, 0x08},
-        {0x09, 0x0a, 0x0b, 0x0c},
-        {0x0d, 0xe, 0x0f, 0x10}
-    };
-    printState(state);
-    shiftRows(state);
-    printState(state);
 }
 
 int main() {
